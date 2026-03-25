@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fast-decoder"
+version = "0.1.0"
+requires-python = ">=3.10"
+authors = [
+  { name = "Hubble Network" },
+]
+readme = "README.md"
+description = "Hubble PHY v-1 / v1 preamble detector, FSK decoder, and spectrogram computation"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=1.26,<2",
+    "scipy>=1.13",
+    "reedsolo",
+    "opencv-python-headless",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+    "ruff",
+]
+
+# ---- Hatchling build config (src layout) ----
+[tool.hatch.build.targets.wheel]
+packages = ["src/fast_decoder"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+    "tests",
+]
+
+# ---- Testing ----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# ---- Linting ----
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
