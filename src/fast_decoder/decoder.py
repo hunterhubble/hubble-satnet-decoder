@@ -202,7 +202,6 @@ def _decode_v1(signal, start_sample, sps):
     measured_synth_res = abs(synth_res_signed)
     chipset_name, table_synth_res = identify_chipset(measured_synth_res)
     synth_res_val = table_synth_res if synth_res_signed >= 0 else -table_synth_res
-    device_channel_spacing = constants.DEVICE_CHANNEL_SPACING[chipset_name]
     cs_inc(chipset_name, "detected")
 
     if _diag:
@@ -280,10 +279,16 @@ def _decode_v1(signal, start_sample, sps):
         _last_attempt["reason"] = "hop_fail"
         return None, None
 
-    # Demodulate PDU with frequency hopping and timing tolerance
+    # Demodulate PDU with frequency hopping and timing tolerance.
+    # Hop offsets match the firmware formula which quantises absolute
+    # channel indices: round(ch * CHANNEL_SPACING / synth_res) * synth_res.
+    # Using absolute indices (not LO-relative) is critical because
+    # round(N*x) - round(M*x) != round((N-M)*x) in general.
     current_channel = channel_num
     F0_current = F0
     pdu_syms = []
+    sr_abs = table_synth_res
+    preamble_ch_freq = round(channel_num * constants.CHANNEL_SPACING / sr_abs) * sr_abs
 
     for p_idx in range(num_pdu_symbols):
         sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
@@ -295,7 +300,8 @@ def _decode_v1(signal, start_sample, sps):
             (hop_index + sym_abs_idx // constants.NUM_SYM_PER_HOP) % constants.NUM_CHANNELS
         ]
         if next_channel != current_channel:
-            F0_current += (next_channel - current_channel) * device_channel_spacing
+            next_ch_freq = round(next_channel * constants.CHANNEL_SPACING / sr_abs) * sr_abs
+            F0_current = F0 + (next_ch_freq - preamble_ch_freq)
             chan_mask = build_chan_mask(F0_current, synth_res_val)
             current_channel = next_channel
 
