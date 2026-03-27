@@ -9,7 +9,7 @@ computation — extracted as a standalone, pip-installable library.
 ## Install
 
 ```bash
-pip install git+https://github.com/hubblenetwork/hubble-satnet-decoder.git
+pip install hubble-satnet-decoder
 ```
 
 Or for development:
@@ -77,6 +77,25 @@ from hubble_satnet_decoder import get_chipset_stats, reset_chipset_stats
 stats = get_chipset_stats()   # {"nordic": {"detected": 5, "ok": 4, ...}, ...}
 reset_chipset_stats()
 ```
+
+## Releasing
+
+1. **Bump the version** in `pyproject.toml` (e.g. `version = "1.0.2"`)
+2. **Write release notes** in `release-notes.md` — categorise commits since the last tag under `Added`, `Fixed`, `Documentation`, `Tests`, and `Maintenance` headings
+3. **Commit**:
+   ```bash
+   git add pyproject.toml release-notes.md
+   git commit -m "chore: release X.Y.Z"
+   ```
+4. **Tag and push**:
+   ```bash
+   git tag vX.Y.Z
+   git push origin main
+   git push origin vX.Y.Z
+   ```
+5. **Approve the publish** — the tag push triggers the [GitHub Actions workflow](.github/workflows/release.yml) which runs tests, builds the package, and publishes to PyPI. Approve the publish step in the GitHub Actions UI (the `pypi` environment gate).
+
+> **Tip:** The `/release` Claude Code skill automates steps 1–4.
 
 ## License
 
