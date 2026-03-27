@@ -1,4 +1,4 @@
-"""fast-decoder — Hubble PHY preamble detector, FSK decoder, and spectrogram computation."""
+"""hubble-satnet-decoder — Hubble PHY preamble detector, FSK decoder, spectrogram."""
 
 from .chipset import get_chipset_stats, reset_chipset_stats
 from .constants import (

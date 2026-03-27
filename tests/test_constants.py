@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from fast_decoder import constants
+from hubble_satnet_decoder import constants
 
 
 def test_default_sample_rate():

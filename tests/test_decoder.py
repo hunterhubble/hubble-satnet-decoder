@@ -2,10 +2,10 @@
 
 import numpy as np
 
-from fast_decoder import constants
-from fast_decoder.chipset import get_chipset_stats, reset_chipset_stats
-from fast_decoder.decoder import decode_signal
-from fast_decoder.demod import build_chan_mask, demod_one_symbol, interp_peak
+from hubble_satnet_decoder import constants
+from hubble_satnet_decoder.chipset import get_chipset_stats, reset_chipset_stats
+from hubble_satnet_decoder.decoder import decode_signal
+from hubble_satnet_decoder.demod import build_chan_mask, demod_one_symbol, interp_peak
 
 
 def test_decode_signal_returns_triple():

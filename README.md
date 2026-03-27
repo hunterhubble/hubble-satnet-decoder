@@ -1,6 +1,6 @@
-# fast-decoder
+# hubble-satnet-decoder
 
-[![CI](https://github.com/hubblenetwork/fast-decoder/actions/workflows/ci.yml/badge.svg)](https://github.com/hubblenetwork/fast-decoder/actions/workflows/ci.yml)
+[![CI](https://github.com/hubblenetwork/hubble-satnet-decoder/actions/workflows/ci.yml/badge.svg)](https://github.com/hubblenetwork/hubble-satnet-decoder/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Hubble PHY v-1 / v1 preamble detector, FSK decoder, and spectrogram
@@ -9,14 +9,14 @@ computation — extracted as a standalone, pip-installable library.
 ## Install
 
 ```bash
-pip install git+https://github.com/hubblenetwork/fast-decoder.git
+pip install git+https://github.com/hubblenetwork/hubble-satnet-decoder.git
 ```
 
 Or for development:
 
 ```bash
-git clone https://github.com/hubblenetwork/fast-decoder.git
-cd fast-decoder
+git clone https://github.com/hubblenetwork/hubble-satnet-decoder.git
+cd hubble-satnet-decoder
 pip install -e ".[dev]"
 ```
 
@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 
 ```python
 import numpy as np
-from fast_decoder import decode_signal, configure
+from hubble_satnet_decoder import decode_signal, configure
 
 # (optional) override the default sample rate
 configure(sample_rate=781_250)
@@ -59,7 +59,7 @@ Recompute all sample-rate-dependent derived values.
 ### Constants
 
 ```python
-from fast_decoder import (
+from hubble_satnet_decoder import (
     SYNTH_RES,             # per-chipset synthesiser resolution (Hz)
     CHANNEL_SPACING,       # nominal channel spacing (Hz)
     DEVICE_CHANNEL_SPACING,# actual per-device channel spacing
@@ -72,7 +72,7 @@ from fast_decoder import (
 ### Chipset statistics
 
 ```python
-from fast_decoder import get_chipset_stats, reset_chipset_stats
+from hubble_satnet_decoder import get_chipset_stats, reset_chipset_stats
 
 stats = get_chipset_stats()   # {"nordic": {"detected": 5, "ok": 4, ...}, ...}
 reset_chipset_stats()

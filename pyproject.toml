@@ -3,7 +3,7 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fast-decoder"
+name = "hubble-satnet-decoder"
 version = "0.1.0"
 requires-python = ">=3.10"
 authors = [
@@ -33,7 +33,7 @@ dev = [
 
 # ---- Hatchling build config (src layout) ----
 [tool.hatch.build.targets.wheel]
-packages = ["src/fast_decoder"]
+packages = ["src/hubble_satnet_decoder"]
 
 [tool.hatch.build.targets.sdist]
 include = [

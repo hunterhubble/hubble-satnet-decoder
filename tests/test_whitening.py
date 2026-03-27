@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from fast_decoder.whitening import data_de_scrambling, lfsr7_symbols
+from hubble_satnet_decoder.whitening import data_de_scrambling, lfsr7_symbols
 
 
 def test_lfsr7_output_length():

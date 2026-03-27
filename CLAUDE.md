@@ -1,4 +1,4 @@
-# fast-decoder
+# hubble-satnet-decoder
 
 Hubble PHY v-1 / v1 preamble detector, FSK decoder, and spectrogram computation.
 
@@ -12,13 +12,13 @@ pytest
 
 ## Project structure
 
-- `src/fast_decoder/constants.py` — protocol constants and sample-rate-dependent derived values
-- `src/fast_decoder/detector.py` — OpenCV template-matching preamble detector
-- `src/fast_decoder/decoder.py` — full decode pipeline (`decode_signal`, `_decode_v1`, `_decode_vneg1`)
-- `src/fast_decoder/demod.py` — FSK demodulation helpers with timing search
-- `src/fast_decoder/whitening.py` — LFSR-7 de-scrambling
-- `src/fast_decoder/chipset.py` — chipset identification and per-chipset statistics
-- `src/fast_decoder/spectrogram.py` — scipy-based spectrogram computation
+- `src/hubble_satnet_decoder/constants.py` — protocol constants and sample-rate-dependent derived values
+- `src/hubble_satnet_decoder/detector.py` — OpenCV template-matching preamble detector
+- `src/hubble_satnet_decoder/decoder.py` — full decode pipeline (`decode_signal`, `_decode_v1`, `_decode_vneg1`)
+- `src/hubble_satnet_decoder/demod.py` — FSK demodulation helpers with timing search
+- `src/hubble_satnet_decoder/whitening.py` — LFSR-7 de-scrambling
+- `src/hubble_satnet_decoder/chipset.py` — chipset identification and per-chipset statistics
+- `src/hubble_satnet_decoder/spectrogram.py` — scipy-based spectrogram computation
 
 ## Conventions
 

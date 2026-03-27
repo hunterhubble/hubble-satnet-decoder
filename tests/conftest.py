@@ -1,9 +1,9 @@
-"""Shared fixtures for fast-decoder tests."""
+"""Shared fixtures for hubble-satnet-decoder tests."""
 
 import numpy as np
 import pytest
 
-from fast_decoder import constants
+from hubble_satnet_decoder import constants
 
 
 @pytest.fixture(autouse=True)
