@@ -61,6 +61,16 @@ SYNTH_RES: dict[str, float] = {
     "atmosic": 500.0,
 }
 
+# Per-chipset quantisation for hop frequency calculation.
+# Silabs firmware uses round(); others use integer truncation (floor).
+SYNTH_QUANTIZE: dict[str, callable] = {
+    "silabs": round,
+    "ti": int,
+    "nordic": int,
+    "esp": int,
+    "atmosic": int,
+}
+
 # Actual per-device channel spacing: each synthesiser can only hop in
 # integer multiples of its synth_res.  Silabs is a special case (protocol
 # defines its spacing as exactly 25500 Hz).

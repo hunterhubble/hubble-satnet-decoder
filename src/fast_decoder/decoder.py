@@ -280,15 +280,17 @@ def _decode_v1(signal, start_sample, sps):
         return None, None
 
     # Demodulate PDU with frequency hopping and timing tolerance.
-    # Hop offsets match the firmware formula which quantises absolute
-    # channel indices: round(ch * CHANNEL_SPACING / synth_res) * synth_res.
+    # Hop offsets use per-chipset quantisation of absolute channel indices:
+    #   quantize(ch * CHANNEL_SPACING / synth_res) * synth_res
+    # Silabs firmware uses round(); Nordic/TI/ESP/Atmosic use int (truncation).
     # Using absolute indices (not LO-relative) is critical because
-    # round(N*x) - round(M*x) != round((N-M)*x) in general.
+    # q(N*x) - q(M*x) != q((N-M)*x) in general.
     current_channel = channel_num
     F0_current = F0
     pdu_syms = []
     sr_abs = table_synth_res
-    preamble_ch_freq = round(channel_num * constants.CHANNEL_SPACING / sr_abs) * sr_abs
+    _quantize = constants.SYNTH_QUANTIZE.get(chipset_name, int)
+    preamble_ch_freq = _quantize(channel_num * constants.CHANNEL_SPACING / sr_abs) * sr_abs
 
     for p_idx in range(num_pdu_symbols):
         sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
@@ -300,7 +302,7 @@ def _decode_v1(signal, start_sample, sps):
             (hop_index + sym_abs_idx // constants.NUM_SYM_PER_HOP) % constants.NUM_CHANNELS
         ]
         if next_channel != current_channel:
-            next_ch_freq = round(next_channel * constants.CHANNEL_SPACING / sr_abs) * sr_abs
+            next_ch_freq = _quantize(next_channel * constants.CHANNEL_SPACING / sr_abs) * sr_abs
             F0_current = F0 + (next_ch_freq - preamble_ch_freq)
             chan_mask = build_chan_mask(F0_current, synth_res_val)
             current_channel = next_channel
