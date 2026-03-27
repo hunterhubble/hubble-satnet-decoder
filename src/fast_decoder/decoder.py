@@ -280,42 +280,77 @@ def _decode_v1(signal, start_sample, sps):
         return None, None
 
     # Demodulate PDU with frequency hopping and timing tolerance.
-    # Each hop is relative to the current channel, not the preamble:
-    #   delta = round((next_ch - current_ch) * CS / sr) * sr
-    # Using round() on the delta (not round(A) - round(B)) because
-    # round(N*x) - round(M*x) != round((N-M)*x) in general.
-    current_channel = channel_num
-    F0_current = F0
-    pdu_syms = []
+    # The hop delta is round((next_ch - current_ch) * CS / sr) steps,
+    # but rounding ambiguity at half-step boundaries means the true
+    # firmware hop can be ±1 step from this.  We try the primary delta
+    # first; on RS failure we retry with the absolute-position method
+    # (round(ch*CS/sr) per channel) which resolves the ambiguity
+    # differently.
     sr_abs = table_synth_res
 
-    for p_idx in range(num_pdu_symbols):
-        sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
-        s0 = start_sample + sym_abs_idx * sps["slot"] + drift
-        if s0 + constants.samples_per_symbol > len(signal):
-            break
+    def _demod_pdu(hop_mode):
+        """Demod all PDU symbols using the given hop mode.
 
-        next_channel = hopping_seq[
-            (hop_index + sym_abs_idx // constants.NUM_SYM_PER_HOP) % constants.NUM_CHANNELS
-        ]
-        if next_channel != current_channel:
-            delta_steps = round((next_channel - current_channel) * constants.CHANNEL_SPACING / sr_abs)
-            F0_current += delta_steps * sr_abs
-            chan_mask = build_chan_mask(F0_current, synth_res_val)
-            current_channel = next_channel
+        hop_mode 0: current-relative delta  round((next-cur)*CS/sr)
+        hop_mode 1: absolute positions       round(ch*CS/sr) per channel
+        """
+        cur_ch = channel_num
+        f0_cur = F0
+        mask = build_chan_mask(F0, synth_res_val)
+        d = drift  # local copy of accumulated drift
+        syms = []
+        preamble_abs = round(channel_num * constants.CHANNEL_SPACING / sr_abs)
 
-        fsk_bin, _, off = demod_best(signal, s0, F0_current, synth_res_val, chan_mask)
-        drift += off
-        pdu_syms.append(fsk_bin)
+        for p_idx in range(num_pdu_symbols):
+            sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
+            s0 = start_sample + sym_abs_idx * sps["slot"] + d
+            if s0 + constants.samples_per_symbol > len(signal):
+                break
+
+            nxt = hopping_seq[
+                (hop_index + sym_abs_idx // constants.NUM_SYM_PER_HOP) % constants.NUM_CHANNELS
+            ]
+            if nxt != cur_ch:
+                if hop_mode == 0:
+                    delta = round((nxt - cur_ch) * constants.CHANNEL_SPACING / sr_abs)
+                    f0_cur += delta * sr_abs
+                else:
+                    nxt_abs = round(nxt * constants.CHANNEL_SPACING / sr_abs)
+                    f0_cur = F0 + (nxt_abs - preamble_abs) * sr_abs
+                mask = build_chan_mask(f0_cur, synth_res_val)
+                cur_ch = nxt
+
+            fsk_bin, _, off = demod_best(signal, s0, f0_cur, synth_res_val, mask)
+            d += off
+            syms.append(fsk_bin)
+        return syms
+
+    pdu_syms = _demod_pdu(0)
 
     if len(pdu_syms) != num_pdu_symbols:
         _last_attempt["reason"] = "pdu_incomplete"
         return None, None
 
-    # De-scramble + RS decode PDU
+    # De-scramble + RS decode PDU (try primary, fallback to alt hop)
     pdu_raw = np.array(pdu_syms, dtype=int)
     de_scrambled = data_de_scrambling(pdu_raw, channel_num)
     pdu_decoded, pdu_n_corr = _rs_decode(de_scrambled, constants.RS_N_V1, constants.RS_K_V1)
+
+    if pdu_n_corr < 0:
+        pdu_syms_alt = _demod_pdu(1)
+        if len(pdu_syms_alt) == num_pdu_symbols and pdu_syms_alt != pdu_syms:
+            pdu_raw_alt = np.array(pdu_syms_alt, dtype=int)
+            de_scrambled_alt = data_de_scrambling(pdu_raw_alt, channel_num)
+            pdu_decoded_alt, pdu_n_corr_alt = _rs_decode(
+                de_scrambled_alt, constants.RS_N_V1, constants.RS_K_V1
+            )
+            if pdu_n_corr_alt >= 0:
+                pdu_syms = pdu_syms_alt
+                pdu_raw = pdu_raw_alt
+                de_scrambled = de_scrambled_alt
+                pdu_decoded = pdu_decoded_alt
+                pdu_n_corr = pdu_n_corr_alt
+
     if pdu_n_corr < 0:
         _last_attempt["pdu_syms_head"] = pdu_syms[:10]
         cs_inc(chipset_name, "pdu_fail")
