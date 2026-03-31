@@ -165,22 +165,78 @@ def _decode_v1(signal, start_sample, sps):
     _diag = constants.VERBOSE or (_v1_diag_counter % 50 == 1)
     _last_attempt = get_last_attempt()
 
-    # F63 / F0 estimation
-    psd_63 = np.zeros(constants.samples_per_symbol)
-    for sym in constants.on_indices_v1:
-        s0 = start_sample + sym * sps["slot"]
-        if s0 + constants.samples_per_symbol > len(signal):
-            return None, None
-        psd_63 += np.abs(np.fft.fft(signal[s0: s0 + constants.samples_per_symbol])) ** 2
-    psd_63 /= len(constants.on_indices_v1)
+    nsym = constants.samples_per_symbol
+    slot = sps["slot"]
+    on_idx = constants.on_indices_v1
+    off_idx = constants.off_indices_v1
+    last_pre_sym = max(max(on_idx), max(off_idx))
 
-    psd_0 = np.zeros(constants.samples_per_symbol)
-    for sym in constants.off_indices_v1:
-        s0 = start_sample + sym * sps["slot"]
-        if s0 + constants.samples_per_symbol > len(signal):
+    # --- Phase 1: coarse F63 bin from spectrogram-aligned start_sample ---
+    psd_63_c = np.zeros(nsym)
+    for sym in on_idx:
+        s0 = start_sample + sym * slot
+        if s0 + nsym > len(signal):
             return None, None
-        psd_0 += np.abs(np.fft.fft(signal[s0: s0 + constants.samples_per_symbol])) ** 2
-    psd_0 /= len(constants.off_indices_v1)
+        psd_63_c += np.abs(np.fft.fft(signal[s0: s0 + nsym])) ** 2
+    psd_0_c = np.zeros(nsym)
+    for sym in off_idx:
+        s0 = start_sample + sym * slot
+        if s0 + nsym > len(signal):
+            return None, None
+        psd_0_c += np.abs(np.fft.fft(signal[s0: s0 + nsym])) ** 2
+
+    coarse_diff = psd_63_c - psd_0_c
+    coarse_F63_bin = int(np.argmax(coarse_diff))
+    coarse_snr = float(coarse_diff[coarse_F63_bin]
+                        / (np.median(np.abs(coarse_diff)) + 1e-30))
+    if coarse_snr < constants.PREAMBLE_F0_SNR_MIN:
+        _last_attempt["reason"] = "snr_fail"
+        if _diag:
+            print(f"[v1-DIAG] FAIL snr: F63_snr={coarse_snr:.1f}"
+                  f" < {constants.PREAMBLE_F0_SNR_MIN}")
+        return None, None
+
+    # --- Phase 2: refine start_sample via preamble correlation ---
+    # Sweep ±half-slot around the coarse detection and pick the offset
+    # that maximises F63 power on the ON preamble symbols (single-bin DFT).
+    twiddle = np.exp(-2j * np.pi * coarse_F63_bin * np.arange(nsym) / nsym)
+    search_half = slot // 2
+    step = max(1, nsym // 16)  # ~390 samples
+    best_pwr = -1.0
+    best_delta = 0
+    for delta in range(-search_half, search_half + 1, step):
+        trial = start_sample + delta
+        if trial < 0:
+            continue
+        if trial + last_pre_sym * slot + nsym > len(signal):
+            continue
+        pwr = 0.0
+        for sym in on_idx:
+            s0 = trial + sym * slot
+            pwr += abs(np.dot(signal[s0: s0 + nsym], twiddle)) ** 2
+        if pwr > best_pwr:
+            best_pwr = pwr
+            best_delta = delta
+
+    start_sample += best_delta
+    _last_attempt["start_sample"] = start_sample
+
+    # --- Phase 3: recompute F0/F63 with refined alignment ---
+    psd_63 = np.zeros(nsym)
+    for sym in on_idx:
+        s0 = start_sample + sym * slot
+        if s0 + nsym > len(signal):
+            return None, None
+        psd_63 += np.abs(np.fft.fft(signal[s0: s0 + nsym])) ** 2
+    psd_63 /= len(on_idx)
+
+    psd_0 = np.zeros(nsym)
+    for sym in off_idx:
+        s0 = start_sample + sym * slot
+        if s0 + nsym > len(signal):
+            return None, None
+        psd_0 += np.abs(np.fft.fft(signal[s0: s0 + nsym])) ** 2
+    psd_0 /= len(off_idx)
 
     psd_diff_63 = psd_63 - psd_0
     F63_bin = int(np.argmax(psd_diff_63))
@@ -189,14 +245,6 @@ def _decode_v1(signal, start_sample, sps):
     psd_diff_0 = psd_0 - psd_63
     F0_bin = int(np.argmax(psd_diff_0))
 
-    if F63_snr < constants.PREAMBLE_F0_SNR_MIN:
-        _last_attempt["reason"] = "snr_fail"
-        if _diag:
-            print(f"[v1-DIAG] FAIL snr: F63_snr={F63_snr:.1f} < {constants.PREAMBLE_F0_SNR_MIN}")
-        return None, None
-
-    # Refine F0/F63 using actual power spectra (more robust than diff
-    # spectrum alone — centers on max RSSI rather than diff edge).
     F0 = interp_peak(psd_0, F0_bin, constants.fft_freqs)
     F63 = interp_peak(psd_63, F63_bin, constants.fft_freqs)
 
@@ -211,12 +259,13 @@ def _decode_v1(signal, start_sample, sps):
         print(
             f"[v1-DIAG] F0={F0:.1f} F63={F63:.1f} Hz, "
             f"meas_sr={sign_char}{measured_synth_res:.2f} -> "
-            f"{chipset_name}(val={synth_res_val:.1f}), snr={F63_snr:.1f}"
+            f"{chipset_name}(val={synth_res_val:.1f}), snr={F63_snr:.1f}, "
+            f"refined={best_delta:+d} samples"
         )
 
     total_energy_dBFS = 10.0 * np.log10(
         max(psd_0[F0_bin], psd_63[F63_bin])
-        / (constants.samples_per_symbol * constants.ADC_FULL_SCALE) ** 2
+        / (nsym * constants.ADC_FULL_SCALE) ** 2
         + 1e-30
     )
     _last_attempt.update(
@@ -467,9 +516,7 @@ def decode_signal(signal):
     for det in detection_list:
         ver = det["phy_ver"]
         sps = constants.slot_samples[ver]
-        # Center start_sample within the active signal region (skip half
-        # the gap) so FFT windows don't straddle symbol boundaries.
-        start_sample = int(round(det["time_s"] * constants.SAMPLE_RATE)) + sps["gap"] // 2
+        start_sample = int(round(det["time_s"] * constants.SAMPLE_RATE))
 
         _last_attempt.clear()
         if ver == -1:
