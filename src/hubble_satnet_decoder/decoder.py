@@ -280,26 +280,25 @@ def _decode_v1(signal, start_sample, sps):
         return None, None
 
     # Demodulate PDU with frequency hopping and timing tolerance.
-    # The hop delta is round((next_ch - current_ch) * CS / sr) steps,
-    # but rounding ambiguity at half-step boundaries means the true
-    # firmware hop can be ±1 step from this.  We try the primary delta
-    # first; on RS failure we retry with the absolute-position method
-    # (round(ch*CS/sr) per channel) which resolves the ambiguity
-    # differently.
+    # Firmware computes hop step as: N * round(CS / synth_res) * synth_res,
+    # i.e. it pre-quantizes the channel spacing to the nearest synth step
+    # once, then multiplies by the channel delta.  The decoder must match
+    # this exactly — using round(N * CS / sr) instead would accumulate
+    # rounding errors of up to several FSK bins.
     sr_abs = table_synth_res
+    quantized_step = round(constants.CHANNEL_SPACING / sr_abs) * sr_abs
 
     def _demod_pdu(hop_mode):
         """Demod all PDU symbols using the given hop mode.
 
-        hop_mode 0: current-relative delta  round((next-cur)*CS/sr)
-        hop_mode 1: absolute positions       round(ch*CS/sr) per channel
+        hop_mode 0: relative delta using pre-quantized step
+        hop_mode 1: absolute positions using pre-quantized step
         """
         cur_ch = channel_num
         f0_cur = F0
         mask = build_chan_mask(F0, synth_res_val)
         d = drift  # local copy of accumulated drift
         syms = []
-        preamble_abs = round(channel_num * constants.CHANNEL_SPACING / sr_abs)
 
         for p_idx in range(num_pdu_symbols):
             sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
@@ -312,11 +311,9 @@ def _decode_v1(signal, start_sample, sps):
             ]
             if nxt != cur_ch:
                 if hop_mode == 0:
-                    delta = round((nxt - cur_ch) * constants.CHANNEL_SPACING / sr_abs)
-                    f0_cur += delta * sr_abs
+                    f0_cur += (nxt - cur_ch) * quantized_step
                 else:
-                    nxt_abs = round(nxt * constants.CHANNEL_SPACING / sr_abs)
-                    f0_cur = F0 + (nxt_abs - preamble_abs) * sr_abs
+                    f0_cur = F0 + (nxt - channel_num) * quantized_step
                 mask = build_chan_mask(f0_cur, synth_res_val)
                 cur_ch = nxt
 
