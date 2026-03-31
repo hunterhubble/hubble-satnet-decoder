@@ -195,8 +195,10 @@ def _decode_v1(signal, start_sample, sps):
             print(f"[v1-DIAG] FAIL snr: F63_snr={F63_snr:.1f} < {constants.PREAMBLE_F0_SNR_MIN}")
         return None, None
 
-    F0 = interp_peak(psd_diff_0, F0_bin, constants.fft_freqs)
-    F63 = interp_peak(psd_diff_63, F63_bin, constants.fft_freqs)
+    # Refine F0/F63 using actual power spectra (more robust than diff
+    # spectrum alone — centers on max RSSI rather than diff edge).
+    F0 = interp_peak(psd_0, F0_bin, constants.fft_freqs)
+    F63 = interp_peak(psd_63, F63_bin, constants.fft_freqs)
 
     synth_res_signed = (F63 - F0) / 63.0
     measured_synth_res = abs(synth_res_signed)
@@ -463,9 +465,11 @@ def decode_signal(signal):
     decoded_packets = []
     all_attempts = []
     for det in detection_list:
-        start_sample = int(round(det["time_s"] * constants.SAMPLE_RATE))
         ver = det["phy_ver"]
         sps = constants.slot_samples[ver]
+        # Center start_sample within the active signal region (skip half
+        # the gap) so FFT windows don't straddle symbol boundaries.
+        start_sample = int(round(det["time_s"] * constants.SAMPLE_RATE)) + sps["gap"] // 2
 
         _last_attempt.clear()
         if ver == -1:
