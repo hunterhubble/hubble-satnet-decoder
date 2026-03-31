@@ -1,4 +1,4 @@
-"""FSK demodulation helpers: channel masking, timing search, peak interpolation."""
+"""FSK demodulation helpers: channel masking and peak interpolation."""
 
 import numpy as np
 
@@ -45,44 +45,3 @@ def demod_one_symbol(
     fsk_bin = int(round((peak_freq - F0) / synth_res_val))
     fsk_bin = max(0, min(constants.NUM_FSK_BINS - 1, fsk_bin))
     return fsk_bin, peak_freq, float(psd_masked[peak_bin])
-
-
-# Pre-computed timing search offsets (recomputed when configure() is called)
-_TIMING_SEARCH: int = int(0.1e-3 * constants.SAMPLE_RATE)  # ±78 samples
-_TIMING_STEP: int = max(1, (2 * _TIMING_SEARCH) // 9)       # 10 positions
-_TIMING_STEPS: np.ndarray = np.arange(
-    -_TIMING_SEARCH, _TIMING_SEARCH + 1, _TIMING_STEP
-)
-
-
-def _recompute_timing() -> None:
-    """Refresh timing search offsets after :func:`constants.configure`."""
-    global _TIMING_SEARCH, _TIMING_STEP, _TIMING_STEPS
-    _TIMING_SEARCH = int(0.1e-3 * constants.SAMPLE_RATE)
-    _TIMING_STEP = max(1, (2 * _TIMING_SEARCH) // 9)
-    _TIMING_STEPS = np.arange(-_TIMING_SEARCH, _TIMING_SEARCH + 1, _TIMING_STEP)
-
-
-def demod_best(
-    signal: np.ndarray,
-    s0: int,
-    F0: float,
-    synth_res_val: float,
-    chan_mask: np.ndarray,
-) -> tuple[int, float, int]:
-    """Demod with ±0.1 ms timing search.
-
-    Returns ``(fsk_bin, peak_freq, best_offset)``.
-    """
-    sym_len = constants.samples_per_symbol
-    best_bin, best_freq, best_power, best_off = 0, 0.0, -1.0, 0
-    for off in _TIMING_STEPS:
-        s = s0 + int(off)
-        if s < 0 or s + sym_len > len(signal):
-            continue
-        fsk_bin, peak_freq, peak_power = demod_one_symbol(
-            signal[s: s + sym_len], F0, synth_res_val, chan_mask,
-        )
-        if peak_power > best_power:
-            best_bin, best_freq, best_power, best_off = fsk_bin, peak_freq, peak_power, int(off)
-    return best_bin, best_freq, best_off

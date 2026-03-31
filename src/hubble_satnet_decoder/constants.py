@@ -5,8 +5,6 @@ All sample-rate-dependent derived values are computed at module load using
 to recompute them (e.g. for offline analysis at a different Fs).
 """
 
-import math
-
 import numpy as np
 import reedsolo as rs
 
@@ -65,8 +63,7 @@ SYNTH_RES: dict[str, float] = {
 # integer multiples of its synth_res.  Silabs is a special case (protocol
 # defines its spacing as exactly 25500 Hz).
 DEVICE_CHANNEL_SPACING: dict[str, float] = {
-    name: (CHANNEL_SPACING if name == "silabs"
-           else math.floor(CHANNEL_SPACING / sr) * sr)
+    name: round(CHANNEL_SPACING / sr) * sr
     for name, sr in SYNTH_RES.items()
 }
 

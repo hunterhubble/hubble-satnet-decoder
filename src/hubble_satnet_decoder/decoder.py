@@ -14,7 +14,7 @@ from scipy.signal import spectrogram as scipy_spectrogram
 
 from . import constants
 from .chipset import cs_inc, get_last_attempt, identify_chipset
-from .demod import build_chan_mask, demod_best, interp_peak
+from .demod import build_chan_mask, demod_one_symbol, interp_peak
 from .detector import detect_preambles
 from .whitening import data_de_scrambling
 
@@ -245,8 +245,8 @@ def _decode_v1(signal, start_sample, sps):
     psd_diff_0 = psd_0 - psd_63
     F0_bin = int(np.argmax(psd_diff_0))
 
-    F0 = interp_peak(psd_0, F0_bin, constants.fft_freqs)
-    F63 = interp_peak(psd_63, F63_bin, constants.fft_freqs)
+    F0 = interp_peak(psd_diff_0, F0_bin, constants.fft_freqs)
+    F63 = interp_peak(psd_diff_63, F63_bin, constants.fft_freqs)
 
     synth_res_signed = (F63 - F0) / 63.0
     measured_synth_res = abs(synth_res_signed)
@@ -275,17 +275,18 @@ def _decode_v1(signal, start_sample, sps):
         F63_snr=round(F63_snr, 1),
     )
 
-    # Demodulate header (6 symbols, same channel) with timing tolerance
+    # Demodulate header (6 symbols, same channel)
     chan_mask = build_chan_mask(F0, synth_res_val)
     header_syms = []
-    drift = 0
+    half_sym = nsym // 2
     for h in range(constants.NUM_HEADER_SYMS):
         sym_abs_idx = constants.PREAMBLE_LEN + h
-        s0 = start_sample + sym_abs_idx * sps["slot"] + drift
-        if s0 + constants.samples_per_symbol > len(signal):
+        s0 = start_sample + sym_abs_idx * slot + half_sym
+        if s0 + nsym > len(signal):
             return None, None
-        fsk_bin, _, off = demod_best(signal, s0, F0, synth_res_val, chan_mask)
-        drift += off
+        fsk_bin, _, _ = demod_one_symbol(
+            signal[s0:s0 + nsym], F0, synth_res_val, chan_mask,
+        )
         header_syms.append(fsk_bin)
 
     _last_attempt["header_syms"] = list(header_syms)
@@ -330,74 +331,43 @@ def _decode_v1(signal, start_sample, sps):
         _last_attempt["reason"] = "hop_fail"
         return None, None
 
-    # Demodulate PDU with frequency hopping and timing tolerance.
-    # Firmware computes hop step as: N * round(CS / synth_res) * synth_res,
-    # i.e. it pre-quantizes the channel spacing to the nearest synth step
-    # once, then multiplies by the channel delta.  The decoder must match
-    # this exactly — using round(N * CS / sr) instead would accumulate
-    # rounding errors of up to several FSK bins.
+    # Demodulate PDU with frequency hopping.
+    # Hop step: round(CHANNEL_SPACING / synth_res) * synth_res
     sr_abs = table_synth_res
     quantized_step = round(constants.CHANNEL_SPACING / sr_abs) * sr_abs
 
-    def _demod_pdu(hop_mode):
-        """Demod all PDU symbols using the given hop mode.
+    cur_ch = channel_num
+    f0_cur = F0
+    mask = build_chan_mask(F0, synth_res_val)
+    pdu_syms = []
 
-        hop_mode 0: relative delta using pre-quantized step
-        hop_mode 1: absolute positions using pre-quantized step
-        """
-        cur_ch = channel_num
-        f0_cur = F0
-        mask = build_chan_mask(F0, synth_res_val)
-        d = drift  # local copy of accumulated drift
-        syms = []
+    for p_idx in range(num_pdu_symbols):
+        sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
+        s0 = start_sample + sym_abs_idx * slot + half_sym
+        if s0 + nsym > len(signal):
+            break
 
-        for p_idx in range(num_pdu_symbols):
-            sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
-            s0 = start_sample + sym_abs_idx * sps["slot"] + d
-            if s0 + constants.samples_per_symbol > len(signal):
-                break
+        nxt = hopping_seq[
+            (hop_index + sym_abs_idx // constants.NUM_SYM_PER_HOP) % constants.NUM_CHANNELS
+        ]
+        if nxt != cur_ch:
+            f0_cur = F0 + (nxt - channel_num) * quantized_step
+            mask = build_chan_mask(f0_cur, synth_res_val)
+            cur_ch = nxt
 
-            nxt = hopping_seq[
-                (hop_index + sym_abs_idx // constants.NUM_SYM_PER_HOP) % constants.NUM_CHANNELS
-            ]
-            if nxt != cur_ch:
-                if hop_mode == 0:
-                    f0_cur += (nxt - cur_ch) * quantized_step
-                else:
-                    f0_cur = F0 + (nxt - channel_num) * quantized_step
-                mask = build_chan_mask(f0_cur, synth_res_val)
-                cur_ch = nxt
-
-            fsk_bin, _, off = demod_best(signal, s0, f0_cur, synth_res_val, mask)
-            d += off
-            syms.append(fsk_bin)
-        return syms
-
-    pdu_syms = _demod_pdu(0)
+        fsk_bin, _, _ = demod_one_symbol(
+            signal[s0:s0 + nsym], f0_cur, synth_res_val, mask,
+        )
+        pdu_syms.append(fsk_bin)
 
     if len(pdu_syms) != num_pdu_symbols:
         _last_attempt["reason"] = "pdu_incomplete"
         return None, None
 
-    # De-scramble + RS decode PDU (try primary, fallback to alt hop)
+    # De-scramble + RS decode PDU
     pdu_raw = np.array(pdu_syms, dtype=int)
     de_scrambled = data_de_scrambling(pdu_raw, channel_num)
     pdu_decoded, pdu_n_corr = _rs_decode(de_scrambled, constants.RS_N_V1, constants.RS_K_V1)
-
-    if pdu_n_corr < 0:
-        pdu_syms_alt = _demod_pdu(1)
-        if len(pdu_syms_alt) == num_pdu_symbols and pdu_syms_alt != pdu_syms:
-            pdu_raw_alt = np.array(pdu_syms_alt, dtype=int)
-            de_scrambled_alt = data_de_scrambling(pdu_raw_alt, channel_num)
-            pdu_decoded_alt, pdu_n_corr_alt = _rs_decode(
-                de_scrambled_alt, constants.RS_N_V1, constants.RS_K_V1
-            )
-            if pdu_n_corr_alt >= 0:
-                pdu_syms = pdu_syms_alt
-                pdu_raw = pdu_raw_alt
-                de_scrambled = de_scrambled_alt
-                pdu_decoded = pdu_decoded_alt
-                pdu_n_corr = pdu_n_corr_alt
 
     if pdu_n_corr < 0:
         _last_attempt["pdu_syms_head"] = pdu_syms[:10]
@@ -406,8 +376,10 @@ def _decode_v1(signal, start_sample, sps):
             print(
                 f"[v1-DIAG] FAIL pdu RS: chipset={chipset_name}, ch={channel_num}, "
                 f"hop={hop_seq_idx}, hdr_corr={header_n_corr}, "
-                f"pdu_raw={pdu_syms[:8]}..., sr_val={synth_res_val:.1f}"
+                f"sr_val={synth_res_val:.1f}, "
+                f"RS=({num_pdu_symbols},{constants.RS_K_V1[pkt_len_idx+1]})"
             )
+            print(f"[v1-FAIL] pdu_demod={pdu_syms}")
         return None, None
 
     # Parse v1 MAC
@@ -440,6 +412,12 @@ def _decode_v1(signal, start_sample, sps):
             f"ntw=0x{ntw_id:08X}, seq={seq_num}, ch={channel_num}, "
             f"hdr_corr={header_n_corr}, pdu_corr={pdu_n_corr}, "
             f"freq_delta={freq_delta_hz:.0f}"
+        )
+        print(
+            f"[v1-REF] auth=0x{auth_tag:08X}, pkt_len_idx={pkt_len_idx}, "
+            f"hop={hop_seq_idx}, RS=({constants.RS_N_V1[pkt_len_idx+1]},"
+            f"{constants.RS_K_V1[pkt_len_idx+1]}), "
+            f"data={mac_syms}, pdu_demod={pdu_syms}"
         )
 
     return (
@@ -510,10 +488,25 @@ def decode_signal(signal):
             "preamble_duration_s": constants.templates[ver]["duration_s"],
         })
 
-    # Decode each detection (dispatch by protocol version)
+    # De-duplicate detections: keep only the highest-score detection per
+    # physical packet (same phy_ver, close in time and frequency).
+    sorted_dets = sorted(detection_list, key=lambda d: -d["score"])
+    deduped_dets: list[dict] = []
+    for det in sorted_dets:
+        is_dup = False
+        for kept in deduped_dets:
+            if (det["phy_ver"] == kept["phy_ver"]
+                    and abs(det["time_s"] - kept["time_s"]) < constants.TIME_TOL
+                    and abs(det["freq_hz"] - kept["freq_hz"]) < constants.F0_TOL):
+                is_dup = True
+                break
+        if not is_dup:
+            deduped_dets.append(det)
+
+    # Decode each unique detection (dispatch by protocol version)
     decoded_packets = []
     all_attempts = []
-    for det in detection_list:
+    for det in deduped_dets:
         ver = det["phy_ver"]
         sps = constants.slot_samples[ver]
         start_sample = int(round(det["time_s"] * constants.SAMPLE_RATE))
