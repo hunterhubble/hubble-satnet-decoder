@@ -47,13 +47,14 @@ def test_templates_built():
 
 
 def test_device_channel_spacing_silabs():
-    assert constants.DEVICE_CHANNEL_SPACING["silabs"] == constants.CHANNEL_SPACING
+    sr = constants.SYNTH_RES["silabs"]
+    expected = round(constants.CHANNEL_SPACING / sr) * sr
+    assert constants.DEVICE_CHANNEL_SPACING["silabs"] == expected
 
 
 def test_device_channel_spacing_nordic():
     sr = constants.SYNTH_RES["nordic"]
-    import math
-    expected = math.floor(constants.CHANNEL_SPACING / sr) * sr
+    expected = round(constants.CHANNEL_SPACING / sr) * sr
     assert constants.DEVICE_CHANNEL_SPACING["nordic"] == expected
 
 
