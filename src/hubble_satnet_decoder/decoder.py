@@ -275,13 +275,15 @@ def _decode_v1(signal, start_sample, sps):
         F63_snr=round(F63_snr, 1),
     )
 
-    # Demodulate header (6 symbols, same channel)
+    # Demodulate header (6 symbols, same channel).
+    # All symbols (preamble, header, PDU) share the same alignment:
+    # s0 = start_sample + sym * slot. start_sample is fixed by preamble
+    # correlation in Phase 2.
     chan_mask = build_chan_mask(F0, synth_res_val)
     header_syms = []
-    half_sym = nsym // 2
     for h in range(constants.NUM_HEADER_SYMS):
         sym_abs_idx = constants.PREAMBLE_LEN + h
-        s0 = start_sample + sym_abs_idx * slot + half_sym
+        s0 = start_sample + sym_abs_idx * slot
         if s0 + nsym > len(signal):
             return None, None
         fsk_bin, _, _ = demod_one_symbol(
@@ -343,7 +345,7 @@ def _decode_v1(signal, start_sample, sps):
 
     for p_idx in range(num_pdu_symbols):
         sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
-        s0 = start_sample + sym_abs_idx * slot + half_sym
+        s0 = start_sample + sym_abs_idx * slot
         if s0 + nsym > len(signal):
             break
 
