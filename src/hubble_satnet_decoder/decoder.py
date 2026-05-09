@@ -421,7 +421,12 @@ def _decode_v1(signal, start_sample, sps):
         )
 
     return (
-        {"F0_hz": float(F0), "total_energy_dB": float(total_energy_dBFS)},
+        {
+            "F0_hz": float(F0),
+            "total_energy_dB": float(total_energy_dBFS),
+            "time_s": start_sample / constants.SAMPLE_RATE,
+            "start_sample": int(start_sample),
+        },
         {
             "phy_ver": 1, "ntw_id": ntw_id, "seq_num": seq_num,
             "auth_tag": auth_tag, "payload_proto_ver": payload_proto_ver,
@@ -529,7 +534,13 @@ def decode_signal(signal):
         attempt.update(_last_attempt)
 
         if pkt_info is not None and pkt_info["total_energy_dB"] >= constants.MIN_ENERGY_DBFS:
-            result["time_s"] = det["time_s"]
+            # Prefer the refined time_s/start_sample that the decoder
+            # actually used (v1 refines via preamble correlation).
+            result["time_s"] = pkt_info.get("time_s", det["time_s"])
+            result["start_sample"] = pkt_info.get(
+                "start_sample",
+                int(round(det["time_s"] * constants.SAMPLE_RATE)),
+            )
             result["freq_hz"] = det["freq_hz"]
             result["F0_hz"] = pkt_info["F0_hz"]
             result["total_energy_dB"] = pkt_info["total_energy_dB"]
