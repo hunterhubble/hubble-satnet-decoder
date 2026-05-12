@@ -49,7 +49,7 @@ RS_N_VNEG1: list[int] = [21, 23, 27, 29, 33, 35, 39, 41]
 NUM_HEADER_SYMS: int = RS_N_V1[0]  # 6
 NUM_CHANNELS: int = 19
 LO_CHANNEL: int = 9
-CHANNEL_SPACING: float = 25_500.0  # Hz
+CHANNEL_SPACING: float = 25_750.0  # Hz
 
 SYNTH_RES: dict[str, float] = {
     "ti": 366.2119,
