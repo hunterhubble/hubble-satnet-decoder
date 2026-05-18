@@ -275,13 +275,15 @@ def _decode_v1(signal, start_sample, sps):
         F63_snr=round(F63_snr, 1),
     )
 
-    # Demodulate header (6 symbols, same channel)
+    # Demodulate header (6 symbols, same channel).
+    # All symbols (preamble, header, PDU) share the same alignment:
+    # s0 = start_sample + sym * slot. start_sample is fixed by preamble
+    # correlation in Phase 2.
     chan_mask = build_chan_mask(F0, synth_res_val)
     header_syms = []
-    half_sym = nsym // 2
     for h in range(constants.NUM_HEADER_SYMS):
         sym_abs_idx = constants.PREAMBLE_LEN + h
-        s0 = start_sample + sym_abs_idx * slot + half_sym
+        s0 = start_sample + sym_abs_idx * slot
         if s0 + nsym > len(signal):
             return None, None
         fsk_bin, _, _ = demod_one_symbol(
@@ -343,7 +345,7 @@ def _decode_v1(signal, start_sample, sps):
 
     for p_idx in range(num_pdu_symbols):
         sym_abs_idx = constants.PREAMBLE_LEN + constants.NUM_HEADER_SYMS + p_idx
-        s0 = start_sample + sym_abs_idx * slot + half_sym
+        s0 = start_sample + sym_abs_idx * slot
         if s0 + nsym > len(signal):
             break
 
@@ -421,7 +423,12 @@ def _decode_v1(signal, start_sample, sps):
         )
 
     return (
-        {"F0_hz": float(F0), "total_energy_dB": float(total_energy_dBFS)},
+        {
+            "F0_hz": float(F0),
+            "total_energy_dB": float(total_energy_dBFS),
+            "time_s": start_sample / constants.SAMPLE_RATE,
+            "start_sample": int(start_sample),
+        },
         {
             "phy_ver": 1, "ntw_id": ntw_id, "seq_num": seq_num,
             "auth_tag": auth_tag, "payload_proto_ver": payload_proto_ver,
@@ -529,7 +536,13 @@ def decode_signal(signal):
         attempt.update(_last_attempt)
 
         if pkt_info is not None and pkt_info["total_energy_dB"] >= constants.MIN_ENERGY_DBFS:
-            result["time_s"] = det["time_s"]
+            # Prefer the refined time_s/start_sample that the decoder
+            # actually used (v1 refines via preamble correlation).
+            result["time_s"] = pkt_info.get("time_s", det["time_s"])
+            result["start_sample"] = pkt_info.get(
+                "start_sample",
+                int(round(det["time_s"] * constants.SAMPLE_RATE)),
+            )
             result["freq_hz"] = det["freq_hz"]
             result["F0_hz"] = pkt_info["F0_hz"]
             result["total_energy_dB"] = pkt_info["total_energy_dB"]
