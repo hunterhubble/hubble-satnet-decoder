@@ -1,12 +1,9 @@
-## [1.1.1] - 2026-03-31
+## [1.1.12] - 2026-06-04
 
 ### Fixed
-- Fix inflated detection stats: deduplicate preamble detections before decode
-  loop so each physical packet is counted once
-- Fix frequency hop calculation: use round() instead of floor() for channel
-  spacing quantization, matching device firmware formula
+- Fix refined time sample index not being returned
 
 ### Changed
-- Simplify FSK demodulation: remove timing search (demod_best) and drift
-  accumulation; use fixed half-symbol offset via demod_one_symbol
-- Remove dual hop-mode fallback; single absolute hop frequency calculation
+- Synth_res values for TI (336 -> 366.2119) and Silabs (444 -> 296)
+- Removed half symbol offset from v1 data symbols
+- Update channel spacing constant
