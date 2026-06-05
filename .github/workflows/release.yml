@@ -102,3 +102,14 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  trigger-sdr-docker:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sdr-docker rebuild
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.SDR_DOCKER_PAT }}
+          repository: HubbleNetwork/sdr-docker
+          event-type: dependency-updated
